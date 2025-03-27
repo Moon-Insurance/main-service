@@ -88,56 +88,25 @@ jobs:
           docker build -t ${{ secrets.GKE_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/moon-insurance/$SERVICE:latest .
           docker push ${{ secrets.GKE_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/moon-insurance/$SERVICE:latest
 
-      - name: Run Migration Job
+      # Install Argo Rollouts CLI
+      - name: Install Argo Rollouts CLI
         run: |
-          kubectl apply -f k8s/migration-job.yaml
-          kubectl wait --for=condition=complete job/${SERVICE}-migrations --timeout=120s || echo "Migration job failed"
+          curl -sSL -o /usr/local/bin/argo-rollouts https://github.com/argoproj/argo-rollouts/releases/download/v1.6.0/argo-rollouts-linux-amd64
+          chmod +x /usr/local/bin/argo-rollouts
 
-      - name: Check for First Deployment (Initial Setup)
-        id: check_deployment
+      # Apply Rollout Configuration and Watch Status
+      - name: Deploy Using Argo Rollouts
         run: |
-          if kubectl get deployment ${SERVICE}-blue; then
-            echo "is_initial=false" >> $GITHUB_ENV
-          else
-            echo "is_initial=true" >> $GITHUB_ENV
-          fi
+          kubectl apply -f k8s/deployment.yaml
+          argo-rollouts get rollout ${SERVICE} --watch
 
-      - name: Initial Blue Deployment
-        if: env.is_initial == 'true'
+      # Approve Rollout Promotion
+      - name: Approve Rollout Promotion
         run: |
-          kubectl apply -f k8s/deployment-blue.yaml
-          kubectl apply -f k8s/service.yaml
-          kubectl rollout status deployment/${SERVICE}-blue
+          argo-rollouts promote ${SERVICE}
+          echo "Green version promoted to production."
 
-      - name: Deploy New Green Version
-        if: env.is_initial == 'false'
+      # Verify Deployment Status
+      - name: Verify Deployment Status
         run: |
-          kubectl apply -f k8s/deployment-green.yaml
-          kubectl rollout status deployment/${SERVICE}-green --timeout=120s
-
-      - name: Health Check Green Version with Rollback
-        if: env.is_initial == 'false'
-        run: |
-          echo "Waiting for the new version to stabilize..."
-          sleep 10
-          LB_HOST=$(kubectl get svc $SERVICE -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-          echo "Load Balancer Host: $LB_HOST"
-          STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://$LB_HOST)
-          echo "Health Check Status: $STATUS"
-          if [ "$STATUS" -ne 200 ]; then
-            echo "Health check failed with status code $STATUS. Rolling back to blue..."
-            kubectl patch service $SERVICE -p '{"spec":{"selector":{"version":"blue"}}}'
-            kubectl rollout status deployment/${SERVICE}-blue
-            exit 1
-          fi
-
-      - name: Switch Traffic to Green
-        if: env.is_initial == 'false'
-        run: |
-          kubectl patch service $SERVICE -p '{"spec":{"selector":{"version":"green"}}}'
-          echo "Traffic switched to green version."
-
-      - name: Confirm Deployments for Rollback
-        if: env.is_initial == 'false'
-        run: |
-          echo "Both blue and green deployments are available. In case of issues, you can revert by patching the service selector back to 'blue'."
+          argo-rollouts get rollout ${SERVICE}
