@@ -80,17 +80,6 @@ jobs:
           kubectl create secret generic ${SERVICE}-db-secret \
             --from-literal=DATABASE_URL=postgresql://${{ secrets.DATABASE_USER }}:${{ secrets.DATABASE_PASSWORD }}@${{ secrets.DATABASE_ENDPOINT }}:5432/${{ secrets.DATABASE_NAME }} || echo "Secret already exists"
 
-      - name: Create Kubernetes Secret for GCP Credentials
-        run: |
-          kubectl create secret generic gcp-secret \
-            --from-literal=GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }} \
-            --from-literal=GCP_REGION=${{ secrets.GKE_REGION }} || echo "Secret already exists"
-
-      - name: Run Migration Job
-        run: |
-          kubectl apply -f k8s/migration-job.yaml
-          kubectl wait --for=condition=complete job/${SERVICE}-migrations --timeout=120s || echo "Migration job failed"
-
       - name: Authenticate Docker with Artifact Registry
         run: gcloud auth configure-docker ${{ secrets.GKE_REGION }}-docker.pkg.dev
 
@@ -98,6 +87,11 @@ jobs:
         run: |
           docker build -t ${{ secrets.GKE_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/moon-insurance/$SERVICE:latest .
           docker push ${{ secrets.GKE_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/moon-insurance/$SERVICE:latest
+
+      - name: Run Migration Job
+        run: |
+          kubectl apply -f k8s/migration-job.yaml
+          kubectl wait --for=condition=complete job/${SERVICE}-migrations --timeout=120s || echo "Migration job failed"
 
       - name: Check for First Deployment (Initial Setup)
         id: check_deployment
