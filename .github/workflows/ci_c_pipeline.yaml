@@ -9,23 +9,6 @@ on:
       aggregator_service:
         required: false
         type: boolean
-    secrets:
-      GCP_SA_KEY:
-        required: true
-      GCP_PROJECT_ID:
-        required: true
-      GKE_CLUSTER_NAME:
-        required: true
-      GKE_REGION:
-        required: true
-      DATABASE_USER:
-        required: true
-      DATABASE_PASSWORD:
-        required: true
-      DATABASE_ENDPOINT:
-        required: true
-      DATABASE_NAME:
-        required: true
 
 jobs:
   deploy_services:
