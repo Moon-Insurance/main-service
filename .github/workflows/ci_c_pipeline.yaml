@@ -96,8 +96,8 @@ jobs:
 
       - name: Build & Push Docker Image to GCP
         run: |
-          docker build -t ${{ secrets.GKE_REGION }}-docker.pkg.dev/$GCP_PROJECT_ID/moon-insurance/$SERVICE:latest .
-          docker push ${{ secrets.GKE_REGION }}-docker.pkg.dev/$GCP_PROJECT_ID/moon-insurance/$SERVICE:latest
+          docker build -t ${{ secrets.GKE_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/moon-insurance/$SERVICE:latest .
+          docker push ${{ secrets.GKE_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/moon-insurance/$SERVICE:latest
 
       - name: Check for First Deployment (Initial Setup)
         id: check_deployment
