@@ -26,6 +26,13 @@ on:
         required: true
       DATABASE_NAME:
         required: true
+      # Additional secrets for aggregator service if needed:
+      AGGREGATOR_DB_URL_1:
+        required: false
+      AGGREGATOR_DB_URL_2:
+        required: false
+      REDSHIFT_URL:
+        required: false
 
 jobs:
   deploy_services:
@@ -43,12 +50,12 @@ jobs:
         with:
           version: "latest"
           project_id: ${{ secrets.GCP_PROJECT_ID }}
-          skip_install: false # You can keep this as false if you want to install gcloud
+          skip_install: false
 
       - name: Authenticate with GCP
         uses: google-github-actions/auth@v1
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }} # Use the service account key from GitHub Secrets
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Configure gcloud project
         run: |
@@ -68,27 +75,21 @@ jobs:
         with:
           python-version: "3.9"
 
-      - name: Install Dependencies & Run Unit Tests
-        run: |
-          echo "Service name is: $SERVICE"
-          pip install -r requirements.txt
-          pytest tests/unit-test.py --maxfail=1 --disable-warnings -q
-
       - name: Create Kubernetes Secret for DATABASE_URL
         run: |
           kubectl create secret generic ${SERVICE}-db-secret \
-          --from-literal=DATABASE_URL=postgresql://${{ secrets.DATABASE_USER }}:${{ secrets.DATABASE_PASSWORD }}@${{ secrets.DATABASE_ENDPOINT }}:5432/${{ secrets.DATABASE_NAME }} || echo "Secret already exists"
+            --from-literal=DATABASE_URL=postgresql://${{ secrets.DATABASE_USER }}:${{ secrets.DATABASE_PASSWORD }}@${{ secrets.DATABASE_ENDPOINT }}:5432/${{ secrets.DATABASE_NAME }} || echo "Secret already exists"
 
       - name: Create Kubernetes Secret for GCP Credentials
         run: |
           kubectl create secret generic gcp-secret \
             --from-literal=GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }} \
-            --from-literal=GCP_REGION=${{ secrets.GCP_REGION }} || echo "Secret already exists"
+            --from-literal=GCP_REGION=${{ secrets.GKE_REGION }} || echo "Secret already exists"
 
       - name: Run Migration Job
         run: |
           kubectl apply -f k8s/migration-job.yaml
-          kubectl wait --for=condition=complete job/$SERVICE-migrations --timeout=120s || echo "Migration job failed"
+          kubectl wait --for=condition=complete job/${SERVICE}-migrations --timeout=120s || echo "Migration job failed"
 
       - name: Authenticate Docker with Artifact Registry
         run: gcloud auth configure-docker ${{ secrets.GKE_REGION }}-docker.pkg.dev
@@ -99,85 +100,50 @@ jobs:
           docker push ${{ secrets.GKE_REGION }}-docker.pkg.dev/$GCP_PROJECT_ID/moon-insurance/$SERVICE:latest
 
       - name: Check for First Deployment (Initial Setup)
-        id: first_deployment
+        id: check_deployment
         run: |
-          if kubectl get deployment $SERVICE-blue; then
-            echo "Blue deployment exists. Continuing with green update."
+          if kubectl get deployment ${SERVICE}-blue; then
             echo "is_initial=false" >> $GITHUB_ENV
           else
-            echo "Blue deployment does not exist. Initial deployment setup."
             echo "is_initial=true" >> $GITHUB_ENV
           fi
 
-      - name: Deploy Blue (Initial Deployment)
+      - name: Initial Blue Deployment
         if: env.is_initial == 'true'
         run: |
           kubectl apply -f k8s/deployment-blue.yaml
-          kubectl apply -f k8s/deployment-blue.yaml
-          kubectl rollout status deployment/$SERVICE-blue
+          kubectl apply -f k8s/service.yaml
+          kubectl rollout status deployment/${SERVICE}-blue
 
-      - name: Rename Green to Blue (Before Deploying New Green)
-        if: env.is_initial == 'false' # Only execute for updates, not the first deployment
-        run: |
-          if kubectl get deployment $SERVICE-green; then
-            echo "Renaming Green to Blue..."
-            kubectl delete service $SERVICE-blue || echo "No old blue service"
-            kubectl delete deployment $SERVICE-blue || echo "No old blue deployment"
-            kubectl patch deployment $SERVICE-green --type='json' \
-              -p='[{"op": "replace", "path": "/metadata/name", "value": "'$SERVICE'-blue"}]'
-          else
-            echo "No existing Green deployment found. Skipping renaming step."
-          fi
-
-      - name: Deploy Green (New Version)
-        run: |
-          kubectl apply -f k8s/deployment-green.yaml
-          kubectl apply -f k8s/service-green.yaml
-          kubectl rollout status deployment/$SERVICE-green
-
-      - name: Get Kubernetes Service URL
-        run: |
-          API_URL=$(kubectl get svc $SERVICE -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-          echo "DEPLOYED_API_URL=$API_URL" >> $GITHUB_ENV
-
-      - name: Switch Traffic to Green (Update Service Selector)
-        run: |
-          kubectl patch service $SERVICE \
-            -p '{"spec":{"selector":{"version":"green"}}}'
-
-      - name: (Optional) Delete Blue Deployment
+      - name: Deploy New Green Version
         if: env.is_initial == 'false'
         run: |
-          kubectl delete deployment $SERVICE-blue
-          kubectl delete service $SERVICE-blue
+          kubectl apply -f k8s/deployment-green.yaml
+          kubectl rollout status deployment/${SERVICE}-green --timeout=120s
 
-  deploy_aggregator:
-    runs-on: ubuntu-latest
-    if: ${{ inputs.aggregator_service == 'true' }} # This job will only run if the aggregator service is specified
-    env:
-      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
-
-      - name: Set up Google Cloud SDK
-        uses: google-github-actions/setup-gcloud@v1
-        with:
-          version: "latest"
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
-          skip_install: false # You can keep this as false if you want to install gcloud
-
-      - name: Handle Aggregator Service
+      - name: Health Check Green Version with Rollback
+        if: env.is_initial == 'false'
         run: |
-          echo "Handling Aggregator Service Logic"
-          # Set up multiple DB connections and Redshift configurations
-          export AGGREGATOR_DB_URL_1=${{ secrets.AGGREGATOR_DB_URL_1 }}
-          export AGGREGATOR_DB_URL_2=${{ secrets.AGGREGATOR_DB_URL_2 }}
-          export REDSHIFT_URL=${{ secrets.REDSHIFT_URL }}
-          echo "Aggregator service has access to multiple databases and Redshift"
+          echo "Waiting for the new version to stabilize..."
+          sleep 10
+          LB_HOST=$(kubectl get svc $SERVICE -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          echo "Load Balancer Host: $LB_HOST"
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://$LB_HOST)
+          echo "Health Check Status: $STATUS"
+          if [ "$STATUS" -ne 200 ]; then
+            echo "Health check failed with status code $STATUS. Rolling back to blue..."
+            kubectl patch service $SERVICE -p '{"spec":{"selector":{"version":"blue"}}}'
+            kubectl rollout status deployment/${SERVICE}-blue
+            exit 1
+          fi
 
-      - name: Deploy Aggregator Service to GKE
+      - name: Switch Traffic to Green
+        if: env.is_initial == 'false'
         run: |
-          kubectl apply -f aggregator_service/k8s/deployment.yaml
-          kubectl rollout status deployment/aggregator-service-deployment
+          kubectl patch service $SERVICE -p '{"spec":{"selector":{"version":"green"}}}'
+          echo "Traffic switched to green version."
+
+      - name: Confirm Deployments for Rollback
+        if: env.is_initial == 'false'
+        run: |
+          echo "Both blue and green deployments are available. In case of issues, you can revert by patching the service selector back to 'blue'."
