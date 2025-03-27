@@ -45,15 +45,6 @@ jobs:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
           skip_install: false # You can keep this as false if you want to install gcloud
 
-      - name: Debug Secrets
-        run: |
-          if [[ -z "${{ secrets.GCP_SA_KEY }}" ]]; then
-            echo "ERROR: GCP_SA_KEY is missing or empty!"
-            exit 1
-          else
-            echo "✅ GCP_SA_KEY is set."
-          fi
-
       - name: Authenticate with GCP
         uses: google-github-actions/auth@v1
         with:
