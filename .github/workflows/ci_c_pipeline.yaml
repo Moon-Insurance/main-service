@@ -18,17 +18,17 @@ jobs:
       SERVICE: ${{ inputs.service_name }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: Moon-Insurance/actions/checkout@v3
 
       - name: Set up Google Cloud SDK
-        uses: google-github-actions/setup-gcloud@v1
+        uses: Moon-Insurance/google-github-actions/setup-gcloud@v1
         with:
           version: "latest"
           project_id: ${{ secrets.GCP_PROJECT_ID }}
           skip_install: false # You can keep this as false if you want to install gcloud
 
       - name: Authenticate with GCP
-        uses: google-github-actions/auth@v1
+        uses: Moon-Insurance/google-github-actions/auth@v1
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }} # Use the service account key from GitHub Secrets
 
