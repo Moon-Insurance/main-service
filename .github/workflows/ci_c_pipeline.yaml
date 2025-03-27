@@ -32,6 +32,15 @@ jobs:
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }} # Use the service account key from GitHub Secrets
 
+      - name: Debug Secrets
+        run: |
+          if [[ -z "${{ secrets.GCP_SA_KEY }}" ]]; then
+            echo "ERROR: GCP_SA_KEY is missing or empty!"
+            exit 1
+          else
+            echo "✅ GCP_SA_KEY is set."
+          fi
+
       - name: Configure gcloud project
         run: |
           gcloud config set project ${{ secrets.GCP_PROJECT_ID }}
