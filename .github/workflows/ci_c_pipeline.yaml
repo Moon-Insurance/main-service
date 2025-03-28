@@ -26,7 +26,6 @@ on:
         required: true
       DATABASE_NAME:
         required: true
-      # Additional secrets for aggregator service if needed:
       AGGREGATOR_DB_URL_1:
         required: false
       AGGREGATOR_DB_URL_2:
@@ -48,9 +47,7 @@ jobs:
       - name: Set up Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v1
         with:
-          version: "latest"
           project_id: ${{ secrets.GCP_PROJECT_ID }}
-          skip_install: false
 
       - name: Authenticate with GCP
         uses: google-github-actions/auth@v1
@@ -58,8 +55,7 @@ jobs:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Configure gcloud project
-        run: |
-          gcloud config set project ${{ secrets.GCP_PROJECT_ID }}
+        run: gcloud config set project ${{ secrets.GCP_PROJECT_ID }}
 
       - name: Install gke-gcloud-auth-plugin
         run: |
@@ -70,11 +66,6 @@ jobs:
         run: |
           gcloud container clusters get-credentials ${{ secrets.GKE_CLUSTER_NAME }} --region ${{ secrets.GKE_REGION }}
 
-      - name: Set up Python
-        uses: actions/setup-python@v2
-        with:
-          python-version: "3.9"
-
       - name: Create Kubernetes Secret for DATABASE_URL
         run: |
           kubectl create secret generic ${SERVICE}-db-secret \
@@ -83,35 +74,50 @@ jobs:
       - name: Authenticate Docker with Artifact Registry
         run: gcloud auth configure-docker ${{ secrets.GKE_REGION }}-docker.pkg.dev
 
-      - name: Install Argo Rollouts CLI
-        run: |
-          curl -sSL https://github.com/argoproj/argo-rollouts/releases/download/v1.5.0/argo-rollouts-linux-amd64 -o /tmp/argo-rollouts
-          chmod +x /tmp/argo-rollouts
-          mv /tmp/argo-rollouts /usr/local/bin/argo-rollouts
-          argo-rollouts version # Verify installation
-
-      - name: Install Argo Rollouts
-        run: |
-          kubectl apply -f https://github.com/argoproj/argo-rollouts/releases/download/v1.5.0/install.yaml
-
       - name: Build & Push Docker Image to GCP
         run: |
-          docker build -t ${{ secrets.GKE_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/moon-insurance/$SERVICE:latest .
-          docker push ${{ secrets.GKE_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/moon-insurance/$SERVICE:latest
+          docker build -t ${{ secrets.GKE_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/moon-insurance/${SERVICE}:latest .
+          docker push ${{ secrets.GKE_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/moon-insurance/${SERVICE}:latest
 
-      # Apply Rollout Configuration and Watch Status
-      - name: Deploy Using Argo Rollouts
+      - name: Get Current Live Version (blue/green)
+        id: get-version
         run: |
-          kubectl apply -f k8s/deployment.yaml
-          argo-rollouts get rollout ${SERVICE} --watch
+          CURRENT=$(kubectl get service ${SERVICE} -o jsonpath='{.spec.selector.version}' || echo "none")
+          echo "CURRENT_VERSION=${CURRENT}" >> $GITHUB_ENV
 
-      # Approve Rollout Promotion
-      - name: Approve Rollout Promotion
+      - name: Define Idle Version
         run: |
-          argo-rollouts promote ${SERVICE}
-          echo "Green version promoted to production."
+          if [[ "${{ env.CURRENT_VERSION }}" == "blue" ]]; then
+            echo "IDLE_VERSION=green" >> $GITHUB_ENV
+          else
+            echo "IDLE_VERSION=blue" >> $GITHUB_ENV
+          fi
 
-      # Verify Deployment Status
-      - name: Verify Deployment Status
+      - name: Deploy Idle Version
         run: |
-          argo-rollouts get rollout ${SERVICE}
+          kubectl apply -f k8s/${SERVICE}-${IDLE_VERSION}.yaml
+
+      - name: Wait for Idle Deployment to be Ready (Optional Rollback)
+        run: |
+          if kubectl get deployment ${SERVICE}-${IDLE_VERSION} > /dev/null 2>&1; then
+            if ! kubectl rollout status deployment/${SERVICE}-${IDLE_VERSION} --timeout=120s; then
+              echo "Rollout failed for ${SERVICE}-${IDLE_VERSION}. Keeping ${CURRENT_VERSION} live."
+              exit 1
+            fi
+          else
+            echo "⚠️ First time deployment detected, skipping rollout status check."
+          fi
+
+      - name: Create or Patch Service to Point to Idle Version
+        run: |
+          if kubectl get service ${SERVICE} > /dev/null 2>&1; then
+            echo "Patching service ${SERVICE} to point to ${IDLE_VERSION}"
+            kubectl patch service ${SERVICE} -p "{\"spec\":{\"selector\":{\"app\":\"${SERVICE}\",\"version\":\"${IDLE_VERSION}\"}}}"
+          else
+            echo " Creating service ${SERVICE} for the first time"
+            kubectl apply -f k8s/service.yaml
+            kubectl patch service ${SERVICE} -p "{\"spec\":{\"selector\":{\"app\":\"${SERVICE}\",\"version\":\"${IDLE_VERSION}\"}}}"
+          fi
+
+      - name: Success Message
+        run: echo "Successfully switched ${SERVICE} to ${IDLE_VERSION}"
