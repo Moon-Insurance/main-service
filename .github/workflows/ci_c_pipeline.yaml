@@ -89,8 +89,10 @@ jobs:
         run: |
           if [[ "${{ env.CURRENT_VERSION }}" == "blue" ]]; then
             echo "IDLE_VERSION=green" >> $GITHUB_ENV
-          else
+          elif [[ "${{ env.CURRENT_VERSION }}" == "green" ]]; then
             echo "IDLE_VERSION=blue" >> $GITHUB_ENV
+          else
+            echo "IDLE_VERSION=blue" >> $GITHUB_ENV  # Default to blue if no version found
           fi
 
       - name: Deploy Idle Version
