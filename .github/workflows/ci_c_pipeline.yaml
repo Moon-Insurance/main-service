@@ -95,7 +95,7 @@ jobs:
 
       - name: Deploy Idle Version
         run: |
-          kubectl apply -f k8s/${SERVICE}-${IDLE_VERSION}.yaml
+          kubectl apply -f k8s/deployment-${IDLE_VERSION}.yaml
 
       - name: Wait for Idle Deployment to be Ready (Optional Rollback)
         run: |
