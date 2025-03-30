@@ -87,14 +87,14 @@ jobs:
           docker push ${{ secrets.GKE_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/moon-insurance/${SERVICE}:latest
 
       - name: Get Current Live Version (blue/green)
-        if: ${{ inputs.aggregator_service != 'true' }}
+        if: ${{ inputs.aggregator_service != true }}
         id: get-version
         run: |
           CURRENT=$(kubectl get service ${SERVICE} -o jsonpath='{.spec.selector.version}' || echo "none")
           echo "CURRENT_VERSION=${CURRENT}" >> $GITHUB_ENV
 
       - name: Define Idle Version
-        if: ${{ inputs.aggregator_service != 'true' }}
+        if: ${{ inputs.aggregator_service != true }}
         run: |
           if [[ "${{ env.CURRENT_VERSION }}" == "blue" ]]; then
             echo "IDLE_VERSION=green" >> $GITHUB_ENV
@@ -105,17 +105,17 @@ jobs:
           fi
 
       - name: Deploy Idle Version
-        if: ${{ inputs.aggregator_service != 'true' }}
+        if: ${{ inputs.aggregator_service != true}}
         run: |
           kubectl apply -f k8s/deployment-${{ env.IDLE_VERSION }}.yaml
 
       - name: Deploy Aggregator Service
-        if: ${{ inputs.aggregator_service == 'true' }}
+        if: ${{ inputs.aggregator_service == true }}
         run: |
           kubectl apply -f k8s/aggregator_cron_job.yaml
 
       - name: Wait for Idle Deployment to be Ready (Optional Rollback)
-        if: ${{ inputs.aggregator_service != 'true' }}
+        if: ${{ inputs.aggregator_service != true }}
         run: |
           if kubectl get deployment ${SERVICE}-${{ env.IDLE_VERSION }} > /dev/null 2>&1; then
             if ! kubectl rollout status deployment/${SERVICE}-${{ env.IDLE_VERSION }} --timeout=120s; then
@@ -127,7 +127,7 @@ jobs:
           fi
 
       - name: Create or Patch Service to Point to Idle Version
-        if: ${{ inputs.aggregator_service != 'true' }}
+        if: ${{ inputs.aggregator_service != true }}
         run: |
           if kubectl get service ${SERVICE} > /dev/null 2>&1; then
             echo "Patching service ${SERVICE} to point to ${{ env.IDLE_VERSION }}"
@@ -139,9 +139,9 @@ jobs:
           fi
 
       - name: Success Message
-        if: ${{ inputs.aggregator_service != 'true' }}
+        if: ${{ inputs.aggregator_service != true }}
         run: echo "Successfully switched ${SERVICE} to ${{ env.IDLE_VERSION }}"
 
       - name: Success Message
-        if: ${{ inputs.aggregator_service == 'true' }}
+        if: ${{ inputs.aggregator_service == true }}
         run: echo "Successfully deployed aggregator service"
