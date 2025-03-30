@@ -73,7 +73,7 @@ jobs:
             --from-literal=DATABASE_URL=postgresql://${{ secrets.DATABASE_USER }}:${{ secrets.DATABASE_PASSWORD }}@${{ secrets.DATABASE_ENDPOINT }}:5432/${{ secrets.DATABASE_NAME }} || echo "Secret already exists"
 
       - name: Create Redshift Secret for REDSHIFT_URL
-        if: ${{ inputs.aggregator_service == 'true' }}
+        if: ${{ inputs.aggregator_service == true }}
         run: |
           kubectl create secret generic ${SERVICE}-redshift-secret \
           --from-literal=REDSHIFT_URL=postgresql://${{ secrets.REDSHIFT_USER }}:${{ secrets.REDSHIFT_PASSWORD }}@${{ secrets.REDSHIFT_ENDPOINT }}:5439/${{ secrets.REDSHIFT_DATABASE }} || echo "Secret already exists"
