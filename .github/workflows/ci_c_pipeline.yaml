@@ -86,14 +86,6 @@ jobs:
           docker build -t ${{ secrets.GKE_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/moon-insurance/${SERVICE}:latest .
           docker push ${{ secrets.GKE_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/moon-insurance/${SERVICE}:latest
 
-  blue_green_deploy:
-    if: ${{ inputs.aggregator_service != 'true' }}
-    runs-on: ubuntu-latest
-    needs: build_image
-    env:
-      SERVICE: ${{ inputs.service_name }}
-
-    steps:
       - name: Get Current Live Version (blue/green)
         id: get-version
         run: |
