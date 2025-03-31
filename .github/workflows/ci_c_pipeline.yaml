@@ -146,7 +146,7 @@ jobs:
         if: ${{ inputs.aggregator_service != true }}
         run: |
           echo "Running integration tests for ${SERVICE}"
-          kubectl apply -f k8s/integration-test-cronjob.yaml
+          kubectl apply -f k8s/integration-test-cron.yaml
 
       - name: Success Message
         if: ${{ inputs.aggregator_service == true }}
