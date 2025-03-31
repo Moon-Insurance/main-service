@@ -36,7 +36,7 @@ on:
         required: false
 
 jobs:
-  build_image:
+  build_and_deploy:
     runs-on: ubuntu-latest
     env:
       GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
@@ -138,9 +138,17 @@ jobs:
             kubectl patch service ${SERVICE} -p "{\"spec\":{\"selector\":{\"app\":\"${SERVICE}\",\"version\":\"${{ env.IDLE_VERSION }}\"}}}"
           fi
 
-      - name: Success Message
+      - name: success message
         if: ${{ inputs.aggregator_service != true }}
         run: echo "Successfully switched ${SERVICE} to ${{ env.IDLE_VERSION }}"
+
+      - name: get service
+        if: ${{ inputs.aggregator_service != true }}
+          BASE_URL=$(kubectl get svc ${SERVICE} -n default --output=jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+      - name: create a secret for the external ip
+        if: ${{ inputs.aggregator_service != true }}
+          kubectl create secret generic ${SERVICE}-url-secret --from-literal=BASE_URL=${BASE_URL}
 
       - name: run integration tests cron job
         if: ${{ inputs.aggregator_service != true }}
@@ -148,6 +156,11 @@ jobs:
           echo "Running integration tests for ${SERVICE}"
           kubectl apply -f k8s/integration-test-cron.yaml
 
-      - name: Success Message
+      - name: integration tests to after deployment
+        if: ${{ inputs.aggregator_service != true }}
+        run: |
+          kubectl create job --from=cronjob/integration-test-runner integration-test-now-$(date +%s)
+
+      - name: success message
         if: ${{ inputs.aggregator_service == true }}
         run: echo "Successfully deployed aggregator service"
