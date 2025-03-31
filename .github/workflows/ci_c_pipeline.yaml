@@ -142,12 +142,6 @@ jobs:
         if: ${{ inputs.aggregator_service != true }}
         run: echo "Successfully switched ${SERVICE} to ${{ env.IDLE_VERSION }}"
 
-      - name: Run Integration Tests Immediately Post-Deploy
-        if: ${{ inputs.aggregator_service != true }}
-        run: |
-          pip install -r requirements.txt
-          pytest tests/integration-test.py
-
       - name: run integration tests cron job
         if: ${{ inputs.aggregator_service != true }}
         run: |
