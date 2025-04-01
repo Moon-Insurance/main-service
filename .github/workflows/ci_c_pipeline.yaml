@@ -153,7 +153,7 @@ jobs:
 
       - name: get service
         if: ${{ inputs.aggregator_service != true }}
-        run: BASE_URL=$(kubectl get svc ${SERVICE} -n default --output=jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        run: BASE_URL=http://$(kubectl get svc ${SERVICE} -n default --output=jsonpath='{.status.loadBalancer.ingress[0].ip}')
 
       - name: create a secret for the external ip
         if: ${{ inputs.aggregator_service != true }}
