@@ -148,7 +148,7 @@ jobs:
 
       - name: create a secret for the external ip
         if: ${{ inputs.aggregator_service != true }}
-        run: kubectl create secret generic ${SERVICE}-url-secret --from-literal=BASE_URL=${BASE_URL}
+        run: kubectl create secret generic ${SERVICE}-url-secret --from-literal=BASE_URL=${BASE_URL} || echo "Secret already exists"
 
       - name: run integration tests cron job
         if: ${{ inputs.aggregator_service != true }}
