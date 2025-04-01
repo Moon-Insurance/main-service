@@ -129,6 +129,9 @@ jobs:
       - name: Get service external IP
         if: ${{ inputs.aggregator_service != true }}
         run: |
+          echo "Waiting for service..."
+          until kubectl get svc "$SERVICE_NAME" -n default >/dev/null 2>&1; do sleep 2; done
+
           BASE_URL="http://$(kubectl get svc ${SERVICE} -n default --output=jsonpath='{.status.loadBalancer.ingress[0].ip}')"
           if [[ -z "$BASE_URL" || "$BASE_URL" == "http://" ]]; then
               echo "Error: BASE_URL is empty or invalid."
