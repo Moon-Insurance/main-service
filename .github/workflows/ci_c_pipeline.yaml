@@ -142,15 +142,6 @@ jobs:
         if: ${{ inputs.aggregator_service != true }}
         run: echo "Successfully switched ${SERVICE} to ${{ env.IDLE_VERSION }}"
 
-      - name: delete old deployment
-        if: ${{ inputs.aggregator_service != true }}
-        run: |
-          if [ "${CURRENT_VERSION}" != "none" ]; then
-            kubectl delete deployment ${SERVICE}-${CURRENT_VERSION}
-          else
-            echo "No previous deployment to delete."
-          fi
-
       - name: get service
         if: ${{ inputs.aggregator_service != true }}
         run: BASE_URL=http://$(kubectl get svc ${SERVICE} -n default --output=jsonpath='{.status.loadBalancer.ingress[0].ip}')
@@ -169,6 +160,15 @@ jobs:
         if: ${{ inputs.aggregator_service != true }}
         run: |
           kubectl create job --from=cronjob/integration-test-${SERVICE} integration-test-${SERVICE}-now-$(date +%s)
+
+      - name: delete old deployment
+        if: ${{ inputs.aggregator_service != true }}
+        run: |
+          if [ "${CURRENT_VERSION}" != "none" ]; then
+            kubectl delete deployment ${SERVICE}-${CURRENT_VERSION}
+          else
+            echo "No previous deployment to delete."
+          fi
 
       - name: success message
         if: ${{ inputs.aggregator_service == true }}
