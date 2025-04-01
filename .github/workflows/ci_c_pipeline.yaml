@@ -145,7 +145,11 @@ jobs:
       - name: delete old deployment
         if: ${{ inputs.aggregator_service != true }}
         run: |
-          kubectl delete deployment ${SERVICE}-${CURRENT_VERSION}
+          if [ "${CURRENT_VERSION}" != "none" ]; then
+            kubectl delete deployment ${SERVICE}-${CURRENT_VERSION}
+          else
+            echo "No previous deployment to delete."
+          fi
 
       - name: get service
         if: ${{ inputs.aggregator_service != true }}
