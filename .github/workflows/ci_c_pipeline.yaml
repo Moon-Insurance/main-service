@@ -142,6 +142,11 @@ jobs:
         if: ${{ inputs.aggregator_service != true }}
         run: echo "Successfully switched ${SERVICE} to ${{ env.IDLE_VERSION }}"
 
+      - name: delete old deployment
+        if: ${{ inputs.aggregator_service != true }}
+        run: |
+          kubectl delete deployment ${SERVICE}-${CURRENT_VERSION}
+
       - name: get service
         if: ${{ inputs.aggregator_service != true }}
         run: BASE_URL=$(kubectl get svc ${SERVICE} -n default --output=jsonpath='{.status.loadBalancer.ingress[0].ip}')
