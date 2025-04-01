@@ -159,7 +159,7 @@ jobs:
       - name: integration tests to after deployment
         if: ${{ inputs.aggregator_service != true }}
         run: |
-          kubectl create job --from=cronjob/integration-test-runner integration-test-now-$(date +%s)
+          kubectl create job --from=cronjob/integration-test-${SERVICE} integration-test-now-$(date +%s)
 
       - name: success message
         if: ${{ inputs.aggregator_service == true }}
