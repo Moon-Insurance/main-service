@@ -129,16 +129,22 @@ jobs:
       - name: Get service external IP
         if: ${{ inputs.aggregator_service != true }}
         run: |
-          echo "Waiting for service..."
+          echo "Waiting for service to be available..."
           until kubectl get svc "$SERVICE_NAME" -n default >/dev/null 2>&1; do sleep 2; done
+          echo "Service found. Waiting for LoadBalancer IP..."
 
-          BASE_URL="http://$(kubectl get svc ${SERVICE} -n default --output=jsonpath='{.status.loadBalancer.ingress[0].ip}')"
-          if [[ -z "$BASE_URL" || "$BASE_URL" == "http://" ]]; then
-              echo "Error: BASE_URL is empty or invalid."
-              exit 1
-          fi
-          echo "BASE_URL=${BASE_URL}"
-          kubectl create secret generic ${SERVICE}-url-secret --from-literal=BASE_URL="${BASE_URL}" -n default || echo "Secret already exists"
+          # Wait until the service gets an external IP
+          while true; do
+            BASE_URL=$(kubectl get svc $SERVICE_NAME -n default --output=jsonpath='{.status.loadBalancer.ingress[0].ip}')
+            if [[ -n "$BASE_URL" && "$BASE_URL" != "null" ]]; then
+                break
+            fi
+            echo "Waiting for LoadBalancer IP..."
+            sleep 2
+          done
+
+          BASE_URL="http://$BASE_URL"
+          echo "BASE_URL=$BASE_URL"
 
       - name: Create or Patch Service to Point to Idle Version
         if: ${{ inputs.aggregator_service != true }}
