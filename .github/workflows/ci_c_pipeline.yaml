@@ -126,6 +126,17 @@ jobs:
             echo "First time deployment detected, skipping rollout status check."
           fi
 
+      - name: Get service external IP
+        if: ${{ inputs.aggregator_service != true }}
+        run: |
+          BASE_URL="http://$(kubectl get svc ${SERVICE} -n default --output=jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+          if [[ -z "$BASE_URL" || "$BASE_URL" == "http://" ]]; then
+              echo "Error: BASE_URL is empty or invalid."
+              exit 1
+          fi
+          echo "BASE_URL=${BASE_URL}"
+          kubectl create secret generic ${SERVICE}-url-secret --from-literal=BASE_URL="${BASE_URL}" -n default || echo "Secret already exists"
+
       - name: Create or Patch Service to Point to Idle Version
         if: ${{ inputs.aggregator_service != true }}
         run: |
@@ -141,14 +152,6 @@ jobs:
       - name: success message
         if: ${{ inputs.aggregator_service != true }}
         run: echo "Successfully switched ${SERVICE} to ${{ env.IDLE_VERSION }}"
-
-      - name: get service
-        if: ${{ inputs.aggregator_service != true }}
-        run: BASE_URL=http://$(kubectl get svc ${SERVICE} -n default --output=jsonpath='{.status.loadBalancer.ingress[0].ip}')
-
-      - name: create a secret for the external ip
-        if: ${{ inputs.aggregator_service != true }}
-        run: kubectl create secret generic ${SERVICE}-url-secret --from-literal=BASE_URL=${BASE_URL} || echo "Secret already exists"
 
       - name: run integration tests cron job
         if: ${{ inputs.aggregator_service != true }}
