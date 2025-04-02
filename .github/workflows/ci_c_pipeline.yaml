@@ -114,6 +114,20 @@ jobs:
         run: |
           kubectl apply -f k8s/aggregator_cron_job.yaml
 
+      - name: Get service external IP
+        if: ${{ inputs.aggregator_service != true }}
+        run: |
+          SERVICE_NAME="${SERVICE}"
+          BASE_URL="http://$(kubectl get svc "$SERVICE_NAME" -n default -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+          if [ -z "$BASE_URL" ]; then
+            echo "Waiting for external IP..."
+            until BASE_URL="http://$(kubectl get svc "$SERVICE_NAME" -n default -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"; [ -n "$BASE_URL" ]; do
+              sleep 5
+            done
+          fi
+          echo "BASE_URL=${BASE_URL}"
+          kubectl create secret generic "${SERVICE_NAME}-url-secret" --from-literal=BASE_URL="${BASE_URL}" -n default --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Wait for Idle Deployment to be Ready (Optional Rollback)
         if: ${{ inputs.aggregator_service != true }}
         run: |
@@ -137,12 +151,6 @@ jobs:
             kubectl apply -f k8s/service.yaml
             kubectl patch service ${SERVICE} -p "{\"spec\":{\"selector\":{\"app\":\"${SERVICE}\",\"version\":\"${{ env.IDLE_VERSION }}\"}}}"
           fi
-
-      - name: ingress patching
-        if: ${{ inputs.aggregator_service != true }}
-        run: |
-          kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/cloud/deploy.yaml
-          kubectl apply -f k8s/ingress.yaml
 
       - name: success message
         if: ${{ inputs.aggregator_service != true }}
