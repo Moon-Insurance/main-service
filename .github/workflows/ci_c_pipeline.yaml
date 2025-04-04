@@ -72,11 +72,15 @@ jobs:
           kubectl create secret generic ${SERVICE}-db-secret \
             --from-literal=DATABASE_URL=postgresql://${{ secrets.DATABASE_USER }}:${{ secrets.DATABASE_PASSWORD }}@${{ secrets.DATABASE_ENDPOINT }}:5432/${{ secrets.DATABASE_NAME }} || echo "Secret already exists"
 
-      - name: Create Redshift Secret for REDSHIFT_URL
+      - name: Create Redshift Secret for Credentials
         if: ${{ inputs.aggregator_service == true }}
         run: |
           kubectl create secret generic ${SERVICE}-redshift-secret \
-          --from-literal=REDSHIFT_URL=postgresql://${{ secrets.REDSHIFT_USER }}:${{ secrets.REDSHIFT_PASSWORD }}@${{ secrets.REDSHIFT_ENDPOINT }}:5439/dev || echo "Secret already exists"
+            --from-literal=REDSHIFT_USER=${{ secrets.REDSHIFT_USER }} \
+            --from-literal=REDSHIFT_PASSWORD=${{ secrets.REDSHIFT_PASSWORD }} \
+            --from-literal=REDSHIFT_ENDPOINT=${{ secrets.REDSHIFT_ENDPOINT }} \
+            --from-literal=REDSHIFT_PORT=5439 \
+            --from-literal=REDSHIFT_DB=dev || echo "Secret already exists"
 
       - name: Authenticate Docker with Artifact Registry
         run: gcloud auth configure-docker ${{ secrets.GKE_REGION }}-docker.pkg.dev
