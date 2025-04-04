@@ -118,20 +118,6 @@ jobs:
         run: |
           kubectl apply -f k8s/aggregator_cron_job.yaml
 
-      - name: Get service external IP
-        if: ${{ inputs.aggregator_service != true }}
-        run: |
-          SERVICE_NAME="${SERVICE}"
-          BASE_URL="http://$(kubectl get svc "$SERVICE_NAME" -n default -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
-          if [ -z "$BASE_URL" ]; then
-            echo "Waiting for external IP..."
-            until BASE_URL="http://$(kubectl get svc "$SERVICE_NAME" -n default -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"; [ -n "$BASE_URL" ]; do
-              sleep 5
-            done
-          fi
-          echo "BASE_URL=${BASE_URL}"
-          kubectl create secret generic "${SERVICE_NAME}-url-secret" --from-literal=BASE_URL="${BASE_URL}" -n default --dry-run=client -o yaml | kubectl apply -f -
-
       - name: Wait for Idle Deployment to be Ready (Optional Rollback)
         if: ${{ inputs.aggregator_service != true }}
         run: |
@@ -159,6 +145,19 @@ jobs:
       - name: success message
         if: ${{ inputs.aggregator_service != true }}
         run: echo "Successfully switched ${SERVICE} to ${{ env.IDLE_VERSION }}"
+
+      - name: Get service external IP
+        if: ${{ inputs.aggregator_service != true }}
+        run: |
+          BASE_URL="http://$(kubectl get svc "$SERVICE_NAME" -n default -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+          if [ -z "$BASE_URL" ]; then
+            echo "Waiting for external IP..."
+            until BASE_URL="http://$(kubectl get svc "$SERVICE_NAME" -n default -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"; [ -n "$BASE_URL" ]; do
+              sleep 5
+            done
+          fi
+          echo "BASE_URL=${BASE_URL}"
+          kubectl create secret generic "${SERVICE_NAME}-url-secret" --from-literal=BASE_URL="${BASE_URL}" -n default --dry-run=client -o yaml | kubectl apply -f -
 
       - name: run integration tests cron job
         if: ${{ inputs.aggregator_service != true }}
