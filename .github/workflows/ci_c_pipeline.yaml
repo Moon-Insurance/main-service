@@ -30,7 +30,7 @@ on:
         required: false
       REDSHIFT_PASSWORD:
         required: false
-      REDSHIFT_ENDPOINT:
+      REDSHIFT_HOST:
         required: false
       REDSHIFT_DATABASE:
         required: false
@@ -78,7 +78,7 @@ jobs:
           kubectl create secret generic ${SERVICE}-redshift-secret \
             --from-literal=REDSHIFT_USER=${{ secrets.REDSHIFT_USER }} \
             --from-literal=REDSHIFT_PASSWORD=${{ secrets.REDSHIFT_PASSWORD }} \
-            --from-literal=REDSHIFT_ENDPOINT=${{ secrets.REDSHIFT_ENDPOINT }} \
+            --from-literal=REDSHIFT_ENDPOINT=${{ secrets.REDSHIFT_HOST }} \
             --from-literal=REDSHIFT_PORT=5439 \
             --from-literal=REDSHIFT_DB=dev || echo "Secret already exists"
 
@@ -94,7 +94,7 @@ jobs:
         if: ${{ inputs.aggregator_service != true }}
         id: get-version
         run: |
-          CURRENT=$(kubectl get service ${SERVICE} -o jsonpath='{.spec.selector.version}' || echo "none")
+          CURRENT=$(kubectl get service ${{SERVICE}} -o jsonpath='{.spec.selector.version}' || echo "none")
           echo "CURRENT_VERSION=${CURRENT}" >> $GITHUB_ENV
 
       - name: Define Idle Version
@@ -117,13 +117,14 @@ jobs:
         if: ${{ inputs.aggregator_service == true }}
         run: |
           kubectl apply -f k8s/aggregator_cron_job.yaml
+          kubectl apply -f k8s/test_con.yaml
 
       - name: Wait for Idle Deployment to be Ready (Optional Rollback)
         if: ${{ inputs.aggregator_service != true }}
         run: |
-          if kubectl get deployment ${SERVICE}-${{ env.IDLE_VERSION }} > /dev/null 2>&1; then
+          if kubectl get deployment ${{SERVICE}}-${{ env.IDLE_VERSION }} > /dev/null 2>&1; then
             if ! kubectl rollout status deployment/${SERVICE}-${{ env.IDLE_VERSION }} --timeout=120s; then
-              echo "Rollout failed for ${SERVICE}-${{ env.IDLE_VERSION }}. Keeping ${CURRENT_VERSION} live."
+              echo "Rollout failed for ${{SERVICE}}-${{ env.IDLE_VERSION }}. Keeping ${CURRENT_VERSION} live."
               exit 1
             fi
           else
