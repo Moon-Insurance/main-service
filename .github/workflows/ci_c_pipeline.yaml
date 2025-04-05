@@ -94,7 +94,7 @@ jobs:
         if: ${{ inputs.aggregator_service != true }}
         id: get-version
         run: |
-          CURRENT=$(kubectl get service ${{SERVICE}} -o jsonpath='{.spec.selector.version}' || echo "none")
+          CURRENT=$(kubectl get service ${SERVICE} -o jsonpath='{.spec.selector.version}' || echo "none")
           echo "CURRENT_VERSION=${CURRENT}" >> $GITHUB_ENV
 
       - name: Define Idle Version
