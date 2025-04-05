@@ -78,7 +78,7 @@ jobs:
           kubectl create secret generic ${SERVICE}-redshift-secret \
             --from-literal=REDSHIFT_USER=${{ secrets.REDSHIFT_USER }} \
             --from-literal=REDSHIFT_PASSWORD=${{ secrets.REDSHIFT_PASSWORD }} \
-            --from-literal=REDSHIFT_ENDPOINT=${{ secrets.REDSHIFT_HOST }} \
+            --from-literal=REDSHIFT_HOST=${{ secrets.REDSHIFT_HOST }} \
             --from-literal=REDSHIFT_PORT=5439 \
             --from-literal=REDSHIFT_DB=dev || echo "Secret already exists"
 
