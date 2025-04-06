@@ -91,11 +91,20 @@ jobs:
           docker push ${{ secrets.GKE_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/moon-insurance/${SERVICE}:latest
 
       - name: Get Current Live Version (blue/green)
-        if: ${{ inputs.aggregator_service != true }}
-        id: get-version
         run: |
-          CURRENT=$(kubectl get service ${SERVICE} -o jsonpath='{.spec.selector.version}' || echo "none")
-          echo "CURRENT_VERSION=${CURRENT}" >> $GITHUB_ENV
+          CURRENT_VERSION=$(kubectl get service ${SERVICE} -o jsonpath='{.spec.selector.version}' 2>/dev/null || echo "")
+
+          # Check if any pods actually match the current selector
+          if [ -n "$CURRENT_VERSION" ]; then
+            MATCHING_PODS=$(kubectl get pods -l app=${SERVICE},version=${CURRENT_VERSION} --no-headers 2>/dev/null | wc -l)
+          else
+            MATCHING_PODS=0
+          fi
+
+          if [ "$MATCHING_PODS" -eq "0" ]; then
+            CURRENT_VERSION="none"
+          fi
+          echo "CURRENT_VERSION=$CURRENT_VERSION" >> $GITHUB_ENV
 
       - name: Define Idle Version
         if: ${{ inputs.aggregator_service != true }}
@@ -152,7 +161,7 @@ jobs:
         run: echo "Successfully deployed aggregator service"
 
       - name: delete old deployment
-        if: ${{ inputs.aggregator_service != true }}
+        if: ${{ inputs.aggregator_service != true }} && ${{ env.CURRENT_VERSION != 'none' }}
         run: |
           if [ "${CURRENT_VERSION}" != "none" ]; then
             kubectl delete deployment ${SERVICE}-${CURRENT_VERSION}
