@@ -1,0 +1,184 @@
+name: Deploy Microservices
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        required: true
+        type: string
+      aggregator_service:
+        required: false
+        type: boolean
+    secrets:
+      GCP_SA_KEY:
+        required: true
+      GCP_PROJECT_ID:
+        required: true
+      GKE_CLUSTER_NAME:
+        required: true
+      GKE_REGION:
+        required: true
+      DATABASE_USER:
+        required: true
+      DATABASE_PASSWORD:
+        required: true
+      DATABASE_ENDPOINT:
+        required: true
+      DATABASE_NAME:
+        required: true
+      REDSHIFT_USER:
+        required: false
+      REDSHIFT_PASSWORD:
+        required: false
+      REDSHIFT_HOST:
+        required: false
+      REDSHIFT_DATABASE:
+        required: false
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    env:
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      SERVICE: ${{ inputs.service_name }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Authenticate with GCP
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Configure gcloud project
+        run: gcloud config set project ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Install gke-gcloud-auth-plugin
+        run: |
+          gcloud components install gke-gcloud-auth-plugin
+          export USE_GKE_GCLOUD_AUTH_PLUGIN=True
+
+      - name: Authenticate with GKE
+        run: |
+          gcloud container clusters get-credentials ${{ secrets.GKE_CLUSTER_NAME }} --region ${{ secrets.GKE_REGION }}
+
+      - name: Create Kubernetes Secret for DATABASE_URL
+        run: |
+          kubectl create secret generic ${SERVICE}-db-secret \
+            --from-literal=DATABASE_URL=postgresql://${{ secrets.DATABASE_USER }}:${{ secrets.DATABASE_PASSWORD }}@${{ secrets.DATABASE_ENDPOINT }}:5432/${{ secrets.DATABASE_NAME }} || echo "Secret already exists"
+
+      - name: Create Redshift Secret for Credentials
+        if: ${{ inputs.aggregator_service == true }}
+        run: |
+          kubectl create secret generic ${SERVICE}-redshift-secret \
+            --from-literal=REDSHIFT_USER=${{ secrets.REDSHIFT_USER }} \
+            --from-literal=REDSHIFT_PASSWORD=${{ secrets.REDSHIFT_PASSWORD }} \
+            --from-literal=REDSHIFT_HOST=${{ secrets.REDSHIFT_HOST }} \
+            --from-literal=REDSHIFT_PORT=5439 \
+            --from-literal=REDSHIFT_DB=dev || echo "Secret already exists"
+
+      - name: Authenticate Docker with Artifact Registry
+        run: gcloud auth configure-docker ${{ secrets.GKE_REGION }}-docker.pkg.dev
+
+      - name: Build & Push Docker Image to GCP
+        run: |
+          docker build -t ${{ secrets.GKE_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/moon-insurance/${SERVICE}:latest .
+          docker push ${{ secrets.GKE_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/moon-insurance/${SERVICE}:latest
+
+      - name: Get Current Live Version (blue/green)
+        if: ${{ inputs.aggregator_service != true }}
+        id: get-version
+        run: |
+          CURRENT=$(kubectl get service ${SERVICE} -o jsonpath='{.spec.selector.version}' || echo "none")
+          echo "CURRENT_VERSION=${CURRENT}" >> $GITHUB_ENV
+
+      - name: Define Idle Version
+        if: ${{ inputs.aggregator_service != true }}
+        run: |
+          if [[ "${{ env.CURRENT_VERSION }}" == "blue" ]]; then
+            echo "IDLE_VERSION=green" >> $GITHUB_ENV
+          elif [[ "${{ env.CURRENT_VERSION }}" == "green" ]]; then
+            echo "IDLE_VERSION=blue" >> $GITHUB_ENV
+          else
+            echo "IDLE_VERSION=blue" >> $GITHUB_ENV  # Default to blue if no version found
+          fi
+
+      - name: Deploy Idle Version
+        if: ${{ inputs.aggregator_service != true}}
+        run: |
+          kubectl apply -f k8s/deployment-${{ env.IDLE_VERSION }}.yaml
+
+      - name: Deploy Aggregator Service
+        if: ${{ inputs.aggregator_service == true }}
+        run: |
+          kubectl apply -f k8s/aggregator_cron_job.yaml
+          kubectl apply -f k8s/test_con.yaml
+
+      - name: Wait for Idle Deployment to be Ready (Optional Rollback)
+        if: ${{ inputs.aggregator_service != true }}
+        run: |
+          if kubectl get deployment ${SERVICE}-${{ env.IDLE_VERSION }} > /dev/null 2>&1; then
+            if ! kubectl rollout status deployment/${SERVICE}-${{ env.IDLE_VERSION }} --timeout=120s; then
+              echo "Rollout failed for ${SERVICE}-${{ env.IDLE_VERSION }}. Keeping ${CURRENT_VERSION} live."
+              exit 1
+            fi
+          else
+            echo "First time deployment detected, skipping rollout status check."
+          fi
+
+      - name: Create or Patch Service to Point to Idle Version
+        if: ${{ inputs.aggregator_service != true }}
+        run: |
+          if kubectl get service ${SERVICE} > /dev/null 2>&1; then
+            echo "Patching service ${SERVICE} to point to ${{ env.IDLE_VERSION }}"
+            kubectl patch service ${SERVICE} -p "{\"spec\":{\"selector\":{\"app\":\"${SERVICE}\",\"version\":\"${{ env.IDLE_VERSION }}\"}}}"
+          else
+            echo " Creating service ${SERVICE} for the first time"
+            kubectl apply -f k8s/service.yaml
+            kubectl patch service ${SERVICE} -p "{\"spec\":{\"selector\":{\"app\":\"${SERVICE}\",\"version\":\"${{ env.IDLE_VERSION }}\"}}}"
+          fi
+
+      - name: success message
+        if: ${{ inputs.aggregator_service != true }}
+        run: echo "Successfully switched ${SERVICE} to ${{ env.IDLE_VERSION }}"
+
+      - name: Get service external IP
+        if: ${{ inputs.aggregator_service != true }}
+        run: |
+          BASE_URL="http://$(kubectl get svc "$SERVICE_NAME" -n default -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+          while [ -z "$BASE_URL" ]; do
+            echo "Waiting for external IP..."
+            sleep 5
+            BASE_URL="http://$(kubectl get svc "$SERVICE_NAME" -n default -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+          done
+          echo "BASE_URL=${BASE_URL}"
+          kubectl create secret generic "${SERVICE_NAME}-url-secret" --from-literal=BASE_URL="${BASE_URL}" -n default --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: run integration tests cron job
+        if: ${{ inputs.aggregator_service != true }}
+        run: |
+          echo "Running integration tests for ${SERVICE}"
+          kubectl apply -f k8s/integration-test-cron.yaml
+
+      - name: integration tests to after deployment
+        if: ${{ inputs.aggregator_service != true }}
+        run: |
+          kubectl create job --from=cronjob/integration-test-${SERVICE} integration-test-${SERVICE}-now-$(date +%s)
+
+      - name: delete old deployment
+        if: ${{ inputs.aggregator_service != true }}
+        run: |
+          if [ "${CURRENT_VERSION}" != "none" ]; then
+            kubectl delete deployment ${SERVICE}-${CURRENT_VERSION}
+          else
+            echo "No previous deployment to delete."
+          fi
+
+      - name: success message
+        if: ${{ inputs.aggregator_service == true }}
+        run: echo "Successfully deployed aggregator service"
