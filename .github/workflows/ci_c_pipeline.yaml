@@ -126,7 +126,6 @@ jobs:
         if: ${{ inputs.aggregator_service == true }}
         run: |
           kubectl apply -f k8s/aggregator_cron_job.yaml
-          kubectl apply -f k8s/test_con.yaml
 
       - name: Wait for Idle Deployment to be Ready (Optional Rollback)
         if: ${{ inputs.aggregator_service != true }}
