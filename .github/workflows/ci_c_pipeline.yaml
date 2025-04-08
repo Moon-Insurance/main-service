@@ -204,14 +204,14 @@ jobs:
 
       - name: Get service external IP
         run: |
-          BASE_URL="http://$(kubectl get svc "$SERVICE_NAME" -n default -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+          BASE_URL="http://$(kubectl get svc "${SERVICE}" -n default -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
           while [ -z "$BASE_URL" ]; do
             echo "Waiting for external IP..."
             sleep 5
-            BASE_URL="http://$(kubectl get svc "$SERVICE_NAME" -n default -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+            BASE_URL="http://$(kubectl get svc "${SERVICE}" -n default -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
           done
           echo "BASE_URL=${BASE_URL}"
-          kubectl create secret generic "${SERVICE_NAME}-url-secret" --from-literal=BASE_URL="${BASE_URL}" -n default --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create secret generic "${SERVICE}-url-secret" --from-literal=BASE_URL="${BASE_URL}" -n default --dry-run=client -o yaml | kubectl apply -f -
 
       - name: run integration tests cron job
         run: |
