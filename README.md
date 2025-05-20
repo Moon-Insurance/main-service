@@ -98,11 +98,3 @@ This repository belongs to the **Moon Insurance GitHub Organization**, which hos
 Each microservice uses this **Main Service** to build, test, and deploy code reliably and securely.
 
 ---
-
-## 👨‍💻 Author
-
-**D.N.H. Weerasinghe**
-IIT ID: 20240475
-RGU ID: 2417932
-
----
